@@ -91,6 +91,10 @@ class HomeScreen(BaseScreen):
         c.delete("all")
         w = c.winfo_width() or 1
         h = c.winfo_height() or 1
+        photo = T.hero_photo(w, h, base=HERO_BG)
+        if photo is not None:
+            c.create_image(0, 0, anchor="nw", image=photo)
+            return
         T.round_rect(c, 0, 0, w, h, T.px(18), fill=HERO_BG, outline=T.BORDER, width=1)
         # 右侧光晕
         cx, cy = w - T.px(120), h / 2

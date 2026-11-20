@@ -17,6 +17,7 @@ SHORTCUTS = [
     ("Ctrl + 0", "界面缩放恢复标准"),
     ("F1", "打开本帮助"),
     ("Space", "输入空格（严格模式下也要打对）"),
+    ("Enter", "代码练习：行末自动进入下一行，按 Enter 也可跳过"),
 ]
 
 TIPS = [
@@ -24,6 +25,7 @@ TIPS = [
     "中文练习在下方输入框输入高亮那一行，整行打对会自动换行，兼容输入法整段上屏。",
     "每个练习都按第一下击键开始计时，暂停时计时也会暂停。",
     "背景音乐可以用底部「播放列表」添加单曲或整个文件夹，会自动记住。",
+    "设置页还能换练习字体、光标样式（竖线 / 方框 / 下划线），以及光标平滑移动。",
 ]
 
 
@@ -34,7 +36,7 @@ class HelpDialog(tk.Toplevel):
         self.title("帮助 · 风火轮打字")
         self.configure(bg=T.BG)
         self.resizable(False, False)
-        self.geometry(f"{T.px(600)}x{T.px(650)}")
+        self.geometry(f"{T.px(600)}x{T.px(700)}")
         self.transient(master.winfo_toplevel())
         try:
             self.grab_set()

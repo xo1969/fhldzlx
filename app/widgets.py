@@ -110,9 +110,11 @@ class Button(tk.Canvas):
             border = T.BORDER_HI if self.kind == "ghost" else T.BORDER
             if self._hover and self.enabled:
                 border = T.mix(border, T.ORANGE, 0.45)
-        if self._radius >= self._ch // 2 - 1:
-            T.round_rect(self, 0, 0, self._cw, self._ch, self._radius, fill=fill,
-                         outline=border or fill, width=1)
+        # 用 PIL 超采样出圆角图，边缘带抗锯齿（Tk 原生图形是硬边）
+        photo = T.rr_photo(self._cw, self._ch, self._radius, fill,
+                           outline=border, border=1 if border else 0, bg=self._bg)
+        if photo is not None:
+            self.create_image(0, 0, anchor="nw", image=photo)
         else:
             T.round_rect(self, 0, 0, self._cw, self._ch, self._radius, fill=fill,
                          outline=border or fill, width=1)
@@ -269,7 +271,13 @@ class Toggle(tk.Canvas):
         h = self._ch
         track = T.ORANGE if self.value else T.PANEL_2
         outline = T.ORANGE if self.value else T.BORDER_HI
-        T.round_rect(self, 1, 1, self._cw - 1, h - 1, (h - 2) / 2, fill=track, outline=outline, width=1)
+        photo = T.toggle_photo(self._cw, h, self.value, T.ORANGE, T.PANEL_2, outline,
+                               self._bg)
+        if photo is not None:
+            self.create_image(0, 0, anchor="nw", image=photo)
+            return
+        T.round_rect(self, 1, 1, self._cw - 1, h - 1, (h - 2) / 2, fill=track,
+                     outline=outline, width=1)
         r = h / 2 - T.px(3)
         cx = (self._cw - h / 2 - T.px(1)) if self.value else (h / 2 + T.px(1))
         knob = "#fff7ef" if self.value else T.MUTED
@@ -311,12 +319,19 @@ class Slider(tk.Canvas):
         self.delete("all")
         h, w = self._ch, self._cw
         pad = self._pad()
+        photo = T.slider_photo(w, h, self.value, self.color, T.PANEL_2, self._bg,
+                              pad=pad, knob_r=T.px(7))
+        if photo is not None:
+            self.create_image(0, 0, anchor="nw", image=photo)
+            return
         cy = h / 2
-        T.round_rect(self, pad, cy - T.px(2), w - pad, cy + T.px(2), T.px(2),
+        th = T.px(4)
+        top = cy - th / 2
+        T.round_rect(self, pad, top, w - pad, cy + th / 2, th / 2,
                      fill=T.PANEL_2, outline=T.PANEL_2)
         x = pad + (w - pad * 2) * self.value
         if x - pad > 1:
-            T.round_rect(self, pad, cy - T.px(2), x, cy + T.px(2), T.px(2),
+            T.round_rect(self, pad, top, x, cy + th / 2, th / 2,
                          fill=self.color, outline=self.color)
         r = T.px(7)
         self.create_oval(x - r, cy - r, x + r, cy + r, fill="#fdf6ef",
@@ -377,13 +392,23 @@ class Segmented(tk.Canvas):
 
     def _draw(self) -> None:
         self.delete("all")
-        T.round_rect(self, 0, 0, self._cw, self._ch, self._ch / 2, fill=T.PANEL,
-                     outline=T.BORDER)
+        outer = T.rr_photo(self._cw, self._ch, self._ch / 2, T.PANEL,
+                           outline=T.BORDER, border=1, bg=self._bg)
+        if outer is not None:
+            self.create_image(0, 0, anchor="nw", image=outer)
+        else:
+            T.round_rect(self, 0, 0, self._cw, self._ch, self._ch / 2, fill=T.PANEL,
+                         outline=T.BORDER)
         for idx, (value, text) in enumerate(self.options):
             x0, x1 = self._rect_of(idx)
             if value == self.value:
-                T.round_rect(self, x0, T.px(4), x1, self._ch - T.px(4), (self._ch - T.px(8)) / 2,
-                             fill=T.ORANGE, outline=T.ORANGE)
+                pill = T.rr_photo(x1 - x0, self._ch - T.px(8), (self._ch - T.px(8)) / 2,
+                                  T.ORANGE, bg=T.PANEL)
+                if pill is not None:
+                    self.create_image(x0, T.px(4), anchor="nw", image=pill)
+                else:
+                    T.round_rect(self, x0, T.px(4), x1, self._ch - T.px(4),
+                                 (self._ch - T.px(8)) / 2, fill=T.ORANGE, outline=T.ORANGE)
                 color = "#1a1004"
             else:
                 color = T.MUTED
@@ -424,10 +449,19 @@ class ProgressBar(tk.Canvas):
         self.delete("all")
         w = max(1, self.winfo_width())
         h = self._ch
-        T.round_rect(self, 0, 0, w, h, h / 2, fill=self.track, outline=self.track)
+        track = T.rr_photo(w, h, h / 2, self.track, bg=self._bg)
+        if track is not None:
+            self.create_image(0, 0, anchor="nw", image=track)
+        else:
+            T.round_rect(self, 0, 0, w, h, h / 2, fill=self.track, outline=self.track)
         filled = max(0.0, min(1.0, self.value)) * w
         if filled > 1:
-            T.round_rect(self, 0, 0, max(filled, h), h, h / 2, fill=self.color, outline=self.color)
+            fw = max(int(round(max(filled, h))), h)
+            bar = T.rr_photo(fw, h, h / 2, self.color, bg=self.track)
+            if bar is not None:
+                self.create_image(0, 0, anchor="nw", image=bar)
+            else:
+                T.round_rect(self, 0, 0, fw, h, h / 2, fill=self.color, outline=self.color)
 
     def set(self, value: float) -> None:
         self.value = max(0.0, min(1.0, float(value)))
@@ -448,7 +482,11 @@ class Pill(tk.Canvas):
         w = self._font.measure(text) + T.px(pad)
         self._ch = h
         super().__init__(master, width=w, height=h, bg=self._bg, highlightthickness=0, bd=0)
-        T.round_rect(self, 0, 0, w, h, h / 2, fill=self.fill, outline=self.fill)
+        photo = T.rr_photo(w, h, h / 2, self.fill, bg=self._bg)
+        if photo is not None:
+            self.create_image(0, 0, anchor="nw", image=photo)
+        else:
+            T.round_rect(self, 0, 0, w, h, h / 2, fill=self.fill, outline=self.fill)
         self.create_text(w / 2, h / 2 + 1, text=text, fill=fg, font=self._font, anchor="c")
 
 
@@ -877,3 +915,180 @@ class VirtualKeyboard(tk.Canvas):
         self.create_text((x0 + x1) / 2, (y0 + y1) / 2 + (T.px(4) if top else T.px(1)),
                          text=ch.upper() if ch.isalpha() else ch, fill=fg,
                          font=font_main, anchor="c")
+
+
+class Caret:
+    """自绘打字光标：四条细边组成空心框，支持 竖线 / 方框 / 下划线 三种样式。
+
+    用空心框而不是实心色块，字符本身不会被遮住；位置用 place 插值做平滑移动。
+    """
+
+    STYLES = (("bar", "竖线"), ("block", "方框"), ("underline", "下划线"))
+
+    def __init__(self, master, bg: str, color: str = T.ORANGE, style: str = "bar",
+                 smooth: bool = True, on_click=None):
+        self.master = master
+        self.bg = bg
+        self.color = color
+        self.style = style if style in ("bar", "block", "underline") else "bar"
+        self.smooth = smooth
+        self.on_click = on_click
+        self._bars = [tk.Frame(master, bg=color, bd=0, highlightthickness=0,
+                               cursor="xterm") for _ in range(4)]
+        for bar in self._bars:
+            bar.bind("<Button-1>", self._click)
+        self._x = self._y = 0.0
+        self._w = self._h = 2.0
+        self._tx = self._ty = 0.0
+        self._tw = self._th = 2.0
+        self._job = None
+        self._visible = False
+        self.hide()
+
+    # -- 位置与外观 -------------------------------------------------
+    def _click(self, _event=None):
+        if self.on_click:
+            self.on_click()
+
+    def set_style(self, style: str, color: str | None = None) -> None:
+        self.style = style if style in ("bar", "block", "underline") else "bar"
+        if color:
+            self.color = color
+        for bar in self._bars:
+            bar.configure(bg=self.color)
+        self._apply()
+
+    def set_smooth(self, smooth: bool) -> None:
+        self.smooth = bool(smooth)
+
+    def place_box(self, x: float, y: float, w: float, h: float, animate: bool = True) -> None:
+        self._tx, self._ty = float(x), float(y)
+        self._tw, self._th = max(2.0, float(w)), max(4.0, float(h))
+        if not self._visible:
+            self._visible = True
+            self._x, self._y, self._w, self._h = self._tx, self._ty, self._tw, self._th
+            self._apply()
+            return
+        if not (animate and self.smooth):
+            self._x, self._y, self._w, self._h = self._tx, self._ty, self._tw, self._th
+            self._apply()
+            return
+        if self._job is None:
+            self._job = self.master.after(14, self._tick)
+
+    def hide(self) -> None:
+        self._visible = False
+        if self._job is not None:
+            try:
+                self.master.after_cancel(self._job)
+            except Exception:
+                pass
+            self._job = None
+        for bar in self._bars:
+            bar.place_forget()
+
+    def _tick(self) -> None:
+        self._job = None
+        dx, dy = self._tx - self._x, self._ty - self._y
+        dw, dh = self._tw - self._w, self._th - self._h
+        if abs(dx) < 0.6 and abs(dy) < 0.6 and abs(dw) < 0.6 and abs(dh) < 0.6:
+            self._x, self._y, self._w, self._h = self._tx, self._ty, self._tw, self._th
+            self._apply()
+            return
+        k = 0.42
+        self._x += dx * k
+        self._y += dy * k
+        self._w += dw * k
+        self._h += dh * k
+        self._apply()
+        self._job = self.master.after(14, self._tick)
+
+    def _apply(self) -> None:
+        if not self._visible:
+            return
+        x, y, w, h = self._x, self._y, self._w, self._h
+        style = self.style
+        thick = 3.0 if style != "block" else 2.0
+        for bar in self._bars:
+            bar.place_forget()
+        if style == "bar":
+            self._bars[0].place(x=round(x), y=round(y), width=3, height=round(h))
+            self._bars[0].lift()
+        elif style == "underline":
+            self._bars[0].place(x=round(x), y=round(y + h - thick), width=round(w),
+                                height=3)
+            self._bars[0].lift()
+        else:
+            t = 2
+            self._bars[0].place(x=round(x), y=round(y), width=round(w), height=t)
+            self._bars[1].place(x=round(x), y=round(y + h - t), width=round(w), height=t)
+            self._bars[2].place(x=round(x), y=round(y), width=t, height=round(h))
+            self._bars[3].place(x=round(x + w - t), y=round(y), width=t, height=round(h))
+            for bar in self._bars:
+                bar.lift()
+
+
+class Dropdown(tk.Frame):
+    """轻量下拉选择：Canvas 自绘按钮 + tk.Menu 弹出列表（用于字体选择）。"""
+
+    def __init__(self, master, options: list[tuple[str, str]], value: str = "",
+                 command=None, bg: str = T.BG, width: int = 190, height: int = 32,
+                 font_size: int = 9):
+        super().__init__(master, bg=bg, width=T.px(width), height=T.px(height))
+        self.pack_propagate(False)
+        self.options = list(options)
+        self.value = value if value is not None else ""
+        self.command = command
+        self._bg = bg
+        self._font_size = font_size
+        self._canvas = tk.Canvas(self, bg=bg, highlightthickness=0, bd=0)
+        self._canvas.pack(fill="both", expand=True)
+        self._canvas.bind("<Button-1>", self._open)
+        self._canvas.bind("<Enter>", lambda e: self._draw(hover=True))
+        self._canvas.bind("<Leave>", lambda e: self._draw(hover=False))
+        self._canvas.bind("<Configure>", lambda e: self._draw())
+        self._menu = None
+        self._draw()
+
+    def set(self, value: str, notify: bool = True) -> None:
+        self.value = value
+        self._draw()
+        if notify and self.command:
+            self.command(value)
+
+    def _label(self) -> str:
+        for val, text in self.options:
+            if val == self.value:
+                return text
+        return self.options[0][1] if self.options else ""
+
+    def _draw(self, hover: bool = False) -> None:
+        c = self._canvas
+        c.delete("all")
+        w = max(10, c.winfo_width())
+        h = max(10, c.winfo_height())
+        fill = T.CARD_HOVER if hover else T.PANEL_2
+        photo = T.rr_photo(w, h, T.px(9), fill, outline=T.BORDER_HI, border=1, bg=self._bg)
+        if photo is not None:
+            c.create_image(0, 0, anchor="nw", image=photo)
+        else:
+            T.round_rect(c, 0, 0, w, h, T.px(9), fill=fill, outline=T.BORDER_HI, width=1)
+        c.create_text(T.px(12), h / 2, text=self._label(), fill=T.TEXT, anchor="w",
+                      font=T.font(self._font_size))
+        c.create_text(w - T.px(14), h / 2 - T.px(1), text="▾", fill=T.MUTED, anchor="e",
+                      font=T.font(10))
+
+    def _open(self, _event=None) -> None:
+        self._canvas.update_idletasks()
+        menu = tk.Menu(self, tearoff=0, bg=T.PANEL_2, fg=T.TEXT,
+                       activebackground=T.ORANGE, activeforeground="#1a1004",
+                       bd=0, relief="flat", font=T.font(self._font_size))
+        for val, text in self.options:
+            menu.add_command(label=text, command=lambda v=val: self.set(v))
+        self._menu = menu
+        x = self._canvas.winfo_rootx()
+        y = self._canvas.winfo_rooty() + self._canvas.winfo_height() + T.px(2)
+        try:
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()

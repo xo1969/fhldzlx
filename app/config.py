@@ -61,6 +61,9 @@ DEFAULT_SETTINGS: dict = {
     "font_scale": 1.0,          # 目标文本字号倍率
     "target_font_size": 26,     # 英文目标字号（中文自动 +4）
     "ui_scale": 1.0,            # 整个界面（字体与间距）缩放：0.9 / 1.0 / 1.1 / 1.2
+    "caret_style": "bar",       # 打字光标：bar 竖线 / block 方框 / underline 下划线
+    "caret_smooth": True,       # 光标平滑移动
+    "practice_font": "",        # 练习字体族；空 = 默认（英文等宽 / 中文雅黑）
     "music_volume": 0.45,
     "music_enabled": True,      # 首次进入练习自动播放
     "music_loop_mode": "list",  # list | one | shuffle

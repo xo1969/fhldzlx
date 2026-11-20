@@ -183,6 +183,199 @@ def round_rect(canvas: tk.Canvas, x0: float, y0: float, x1: float, y1: float,
     return item
 
 
+_PHOTO_CACHE: dict[tuple, object] = {}
+_PIL_READY = False
+try:  # 只为抗锯齿绘制，缺失时所有控件自动退回 Tk 原生图形
+    from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageTk  # type: ignore
+    _PIL_READY = True
+except Exception:  # pragma: no cover
+    Image = ImageChops = ImageDraw = ImageFont = ImageTk = None  # type: ignore
+
+
+def _finish_photo(key: tuple, img, width: int, height: int, bg: str | None):
+    if bg:
+        plate = Image.new("RGBA", (width, height), hex_to_rgb(bg) + (255,))
+        plate.alpha_composite(img)
+        img = plate
+    try:
+        photo = ImageTk.PhotoImage(img)
+    except Exception:
+        return None
+    _PHOTO_CACHE[key] = photo
+    return photo
+
+
+def rr_photo(width: float, height: float, radius: float, fill: str,
+             outline: str = "", border: float = 1, bg: str | None = None,
+             supersample: int = 4):
+    """用 PIL 超采样渲染抗锯齿圆角矩形，返回可直接放到 Canvas 的 PhotoImage。
+
+    环境里没有 Pillow 时返回 None，调用方退回 Tk 原生 round_rect。
+    """
+    if not _PIL_READY:
+        return None
+    w = max(1, int(round(width)))
+    h = max(1, int(round(height)))
+    border = float(border) if outline else 0.0
+    key = ("rr", w, h, round(float(radius), 1), fill, outline, round(border, 1), bg)
+    cached = _PHOTO_CACHE.get(key)
+    if cached is not None:
+        return cached
+    s = max(2, int(supersample))
+    img = Image.new("RGBA", (w * s, h * s), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    side = max(0.0, float(radius)) * s
+    draw.rounded_rectangle(
+        [0, 0, w * s - 1, h * s - 1], radius=side,
+        fill=hex_to_rgb(fill) + (255,),
+        outline=(hex_to_rgb(outline) + (255,)) if outline else None,
+        width=max(1, int(round(border * s))) if outline else 1,
+    )
+    img = img.resize((w, h), Image.LANCZOS)
+    return _finish_photo(key, img, w, h, bg)
+
+
+def toggle_photo(width: float, height: float, value: bool, track_on: str,
+                 track_off: str, outline: str, bg: str,
+                 knob_on: str = "#fff7ef", knob_off: str = MUTED,
+                 supersample: int = 4):
+    """整块开关（轨道 + 圆钮）一次性抗锯齿渲染，避免圆钮方底。"""
+    if not _PIL_READY:
+        return None
+    w = max(1, int(round(width)))
+    h = max(1, int(round(height)))
+    key = ("toggle", w, h, bool(value), track_on, track_off, outline, bg,
+           knob_on, knob_off)
+    cached = _PHOTO_CACHE.get(key)
+    if cached is not None:
+        return cached
+    s = max(2, int(supersample))
+    img = Image.new("RGBA", (w * s, h * s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    pad = max(1, int(round(1 * s)))
+    d.rounded_rectangle(
+        [pad, pad, w * s - pad - 1, h * s - pad - 1], radius=(h * s - pad * 2) / 2,
+        fill=hex_to_rgb(track_on if value else track_off) + (255,),
+        outline=hex_to_rgb(outline) + (255,),
+        width=max(1, int(round(0.9 * s))),
+    )
+    r = (h * s) / 2 - 3 * s
+    cx = (w * s - h * s / 2 - s) if value else (h * s / 2 + s)
+    cy = h * s / 2
+    d.ellipse([cx - r, cy - r, cx + r, cy + r],
+              fill=hex_to_rgb(knob_on if value else knob_off) + (255,))
+    img = img.resize((w, h), Image.LANCZOS)
+    return _finish_photo(key, img, w, h, bg)
+
+
+def slider_photo(width: float, height: float, value: float, color: str,
+                 track: str, bg: str, pad: float = 7, knob_r: float = 7,
+                 knob_fill: str = "#fdf6ef", supersample: int = 4):
+    """整条滑杆（轨道 + 已填充段 + 圆钮）一次性渲染。"""
+    if not _PIL_READY:
+        return None
+    w = max(1, int(round(width)))
+    h = max(1, int(round(height)))
+    value = max(0.0, min(1.0, float(value)))
+    key = ("slider", w, h, round(value, 4), color, track, bg,
+           round(pad, 1), round(knob_r, 1), knob_fill)
+    cached = _PHOTO_CACHE.get(key)
+    if cached is not None:
+        return cached
+    s = max(2, int(supersample))
+    img = Image.new("RGBA", (w * s, h * s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    p = pad * s
+    th = max(2.0, 3.0 * s)
+    cy = h * s / 2
+    x1 = p + (w * s - p * 2) * value
+    d.rounded_rectangle([p, cy - th / 2, w * s - p, cy + th / 2], radius=th / 2,
+                        fill=hex_to_rgb(track) + (255,))
+    if x1 - p > 1:
+        d.rounded_rectangle([p, cy - th / 2, x1, cy + th / 2], radius=th / 2,
+                            fill=hex_to_rgb(color) + (255,))
+    r = knob_r * s
+    d.ellipse([x1 - r, cy - r, x1 + r, cy + r], fill=hex_to_rgb(knob_fill) + (255,),
+              outline=hex_to_rgb(darken(color, 0.2)) + (255,),
+              width=max(1, int(round(1 * s))))
+    img = img.resize((w, h), Image.LANCZOS)
+    return _finish_photo(key, img, w, h, bg)
+
+
+def hero_photo(width: float, height: float, base: str = "#141b33",
+               border: str = BORDER, glow: str = ORANGE, warm: str = RED,
+               accent: str = GOLD, bg: str = BG, radius: float = 18,
+               supersample: int = 2):
+    """首页横幅整图：圆角卡片 + 右侧光晕 + 风火轮徽章 + 混天绫，全靠 PIL 抗锯齿。"""
+    if not _PIL_READY:
+        return None
+    w = max(1, int(round(width)))
+    h = max(1, int(round(height)))
+    key = ("hero", w, h, base, border, glow, warm, accent, bg, round(radius, 1))
+    cached = _PHOTO_CACHE.get(key)
+    if cached is not None:
+        return cached
+    s = max(1, int(supersample))
+    W, H = w * s, h * s
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    r = radius * s
+    d.rounded_rectangle([0, 0, W - 1, H - 1], radius=r, fill=hex_to_rgb(base) + (255,),
+                        outline=hex_to_rgb(border) + (255,), width=max(1, s // 2 + 1))
+
+    inside = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(inside).rounded_rectangle([0, 0, W - 1, H - 1], radius=r,
+                                             fill=255)
+
+    def paste_glow(cx: float, cy: float, rad: float, color: str, strength: float) -> None:
+        grad = Image.radial_gradient("L").resize((max(2, int(rad * 2)),) * 2,
+                                                 Image.BILINEAR)
+        # radial_gradient: 中心 0、圆边 181、四角 255 —— 反相后把圆边压到 0，避免出现方形光块
+        grad = grad.point(lambda v: int(max(0, 255 - v - 74) / 181 * 255 * strength))
+        mask = Image.new("L", (W, H), 0)
+        mask.paste(grad, (int(cx - rad), int(cy - rad)))
+        mask = ImageChops.multiply(mask, inside)
+        img.paste(Image.new("RGB", (W, H), hex_to_rgb(color)), (0, 0), mask)
+
+    paste_glow(W - 120 * s, H / 2, 230 * s, glow, 0.42)
+    emblem_x, emblem_y = W - 137 * s, H / 2
+    paste_glow(emblem_x, emblem_y, 112 * s, glow, 0.34)
+
+    ring_r = 62 * s
+    d.ellipse([emblem_x - ring_r, emblem_y - ring_r, emblem_x + ring_r, emblem_y + ring_r],
+              fill=mix(base, glow, 0.16), outline=glow, width=max(2, 2 * s))
+    arc_r = 84 * s
+    for offset, color, lw in ((20, accent, 2), (140, warm, 1), (260, glow, 1)):
+        d.arc([emblem_x - arc_r, emblem_y - arc_r, emblem_x + arc_r, emblem_y + arc_r],
+              start=offset, end=offset + 70, fill=color, width=max(1, lw * s))
+    ribbon = [(emblem_x - 96 * s, emblem_y + 58 * s),
+              (emblem_x - 40 * s, emblem_y + 78 * s),
+              (emblem_x + 18 * s, emblem_y + 62 * s),
+              (emblem_x + 70 * s, emblem_y + 86 * s)]
+    d.line(ribbon, fill=mix(base, warm, 0.55), width=max(2, 3 * s), joint="curve")
+    d.line([(28 * s, H - 16 * s), (W - 28 * s, H - 16 * s)],
+           fill=mix(base, glow, 0.18), width=max(1, s))
+    for fx, fy, rad in ((0.55, 0.22, 2), (0.63, 0.78, 1.5), (0.82, 0.16, 2.2),
+                        (0.9, 0.72, 1.8), (0.72, 0.55, 1.4), (0.48, 0.68, 1.6)):
+        x, y, rr = W * fx, H * fy, rad * s
+        d.ellipse([x - rr, y - rr, x + rr, y + rr], fill=mix(base, accent, 0.55))
+
+    glyph = None
+    size = int(46 * s * FACTOR * max(0.8, UI_SCALE))
+    for path in ("C:/Windows/Fonts/msyhbd.ttc", "C:/Windows/Fonts/msyh.ttc",
+                 "C:/Windows/Fonts/simhei.ttf"):
+        try:
+            glyph = ImageFont.truetype(path, size)
+            break
+        except Exception:
+            continue
+    if glyph is not None:
+        d.text((emblem_x, emblem_y + 2 * s), "风", font=glyph, fill=ORANGE_HI,
+               anchor="mm")
+    img = img.resize((w, h), Image.LANCZOS)
+    return _finish_photo(key, img, w, h, bg)
+
+
 def vgradient(canvas: tk.Canvas, x0: int, y0: int, x1: int, y1: int,
               colors: list[str], tags: str | None = None) -> None:
     """竖直渐变条带（用于 hero 背景）。"""

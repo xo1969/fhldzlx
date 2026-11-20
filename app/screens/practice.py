@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import ttk
 
 from .. import content as C
@@ -19,8 +20,13 @@ HINT_CN = "在下方输入框输入加亮的一行，打完整行自动换行。
 class TextSurface(tk.Frame):
     """目标文本显示：逐字着色 + 当前字符光标。"""
 
-    def __init__(self, master, size: int = 26, cn: bool = False):
+    def __init__(self, master, size: int = 26, cn: bool = False,
+                 caret_style: str = "bar", caret_smooth: bool = True,
+                 font_family: str = ""):
         super().__init__(master, bg=T.CARD)
+        self._caret_style = caret_style
+        self._font_family = font_family
+        self._last_index = 0
         self.text = tk.Text(self, bg=T.CARD, fg=T.TEXT, relief="flat", bd=0,
                             highlightthickness=0, wrap="word", padx=T.px(30),
                             pady=T.px(22), insertwidth=0, cursor="arrow",
@@ -33,6 +39,21 @@ class TextSurface(tk.Frame):
         self.text.pack(side="left", fill="both", expand=True)
         self.set_font(size, cn)
         self.text.configure(state="disabled")
+        self.caret = W.Caret(self, bg=T.CARD, style=caret_style, smooth=caret_smooth,
+                             on_click=lambda: self.text.focus_set())
+        self.bind("<Configure>", lambda e: self.set_cursor(self._last_index, animate=False))
+
+    def apply_style(self, caret_style: str | None = None,
+                    caret_smooth: bool | None = None,
+                    font_family: str | None = None) -> None:
+        if caret_style is not None:
+            self._caret_style = caret_style
+        if caret_smooth is not None:
+            self.caret.set_smooth(caret_smooth)
+        if font_family is not None:
+            self._font_family = font_family
+            self.set_font(getattr(self, "_size", 26), getattr(self, "_cn", False))
+        self.set_cursor(self._last_index, animate=False)
 
     def show_bar(self, visible: bool) -> None:
         if visible:
@@ -42,7 +63,9 @@ class TextSurface(tk.Frame):
             self.bar.pack_forget()
 
     def set_font(self, size: int, cn: bool) -> None:
-        family = T.FONT_CN if cn else T.FONT_MONO
+        self._size = int(size)
+        self._cn = bool(cn)
+        family = self._font_family or (T.FONT_CN if cn else T.FONT_MONO)
         scaled = max(10, int(round(size * T.get_scale())))
         self.text.configure(font=(family, scaled), spacing2=T.px(8 if not cn else 14))
         self.text.tag_configure("pend", foreground=T.TEXT, background=T.CARD)
@@ -83,11 +106,25 @@ class TextSurface(tk.Frame):
             self.text.tag_remove(tag, self._idx(start), self._idx(end))
         self.text.tag_add("pend", self._idx(start), self._idx(end))
 
-    def set_cursor(self, index: int, bad: bool = False) -> None:
-        self.text.tag_remove("cur", "1.0", "end")
-        self.text.tag_remove("cur_bad", "1.0", "end")
-        tag = "cur_bad" if bad else "cur"
-        self.text.tag_add(tag, self._idx(index), self._idx(index + 1))
+    def set_cursor(self, index: int, bad: bool = False, animate: bool = True) -> None:
+        """把自绘光标移到第 index 个字符；越界或结尾时贴到最后一个字符。"""
+        self._last_index = max(0, int(index))
+        idx = self._idx(self._last_index)
+        try:
+            self.text.update_idletasks()
+            info = self.text.bbox(idx)
+            if not info:
+                info = self.text.bbox("end-1c")
+        except tk.TclError:
+            info = None
+        if not info:
+            self.caret.hide()
+            return
+        bx, by, bw, bh = info
+        x = self.text.winfo_x() + bx - 1
+        y = self.text.winfo_y() + by
+        self.caret.set_style(self._caret_style, color=T.RED if bad else T.ORANGE)
+        self.caret.place_box(x, y, max(bw, 4) + 2, max(bh - 2, 8), animate=animate)
 
     def flash_bad(self, index: int, ms: int = 130) -> None:
         self.text.tag_add("bad", self._idx(index), self._idx(index + 1))
@@ -231,7 +268,12 @@ class PracticeScreen(BaseScreen):
         self.text_wrap = W.Card(self, bg=T.CARD, border=T.BORDER)
         self.text_wrap.pack(fill="both", expand=True, padx=T.px(22), pady=T.px(10))
         text_wrap = self.text_wrap
-        self.surface = TextSurface(text_wrap.inner, size=int(self.app.settings.target_font_size))
+        settings = self.app.settings
+        self.surface = TextSurface(
+            text_wrap.inner, size=int(settings.target_font_size),
+            caret_style=str(settings.get("caret_style", "bar")),
+            caret_smooth=bool(settings.get("caret_smooth", True)),
+            font_family=str(settings.get("practice_font") or ""))
         self.surface.pack(fill="both", expand=True, padx=1, pady=1)
         self.surface.text.bind("<KeyPress>", self._on_key)
         self.surface.text.bind("<Button-1>", lambda e: self._focus_input())
@@ -246,6 +288,11 @@ class PracticeScreen(BaseScreen):
                                  highlightcolor=T.ORANGE, justify="left")
         self.cn_entry.pack(side="left", fill="x", expand=True, padx=(T.px(18), T.px(10)),
                            pady=T.px(12))
+        self.cn_entry.configure(insertwidth=0)
+        self.caret_cn = W.Caret(self.cn_panel, bg=T.PANEL, style="bar", smooth=True,
+                                on_click=lambda: self.cn_entry.focus_set())
+        self.cn_entry.bind("<FocusIn>", lambda e: self._place_cn_caret())
+        self.cn_entry.bind("<FocusOut>", lambda e: self.caret_cn.hide())
         self.cn_entry_var.trace_add("write", self._on_cn_change)
         self.cn_entry.bind("<Escape>", lambda e: self._back())
         self.cn_entry.bind("<F5>", lambda e: self.restart())
@@ -336,6 +383,7 @@ class PracticeScreen(BaseScreen):
         self.surface.set_font(int(self.app.settings.target_font_size), cn)
         self.title_label.configure(text=plan.get("title", "练习"))
         if cn:
+            self._set_cn_entry_font(str(self.app.settings.get("practice_font") or ""))
             self.session = E.ChineseSession(plan.get("lines") or [])
             content = "\n".join(self.session.lines)
             self.surface.set_text(content)
@@ -396,11 +444,14 @@ class PracticeScreen(BaseScreen):
             self.restart()
             return "break"
         if keysym in ("Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
-                      "Caps_Lock", "Super_L", "Super_R", "Menu", "Return", "KP_Enter"):
+                      "Caps_Lock", "Super_L", "Super_R", "Menu"):
             return "break"
         if event.state & 0x4:  # Ctrl 组合键放行
             return ""
         if self.paused or self._finished:
+            return "break"
+        if keysym in ("Return", "KP_Enter"):
+            self._handle("\n")
             return "break"
         if keysym == "BackSpace":
             self._handle("\b")
@@ -446,12 +497,60 @@ class PracticeScreen(BaseScreen):
             self._finish()
 
     # ------------------------------------------------------------ 中文输入
+    def _set_cn_entry_font(self, family: str = "") -> None:
+        face = family or T.FONT_CN
+        try:
+            self.cn_entry.configure(font=(face, int(round(16 * T.get_scale()))))
+        except tk.TclError:
+            pass
+
+    def apply_practice_style(self) -> None:
+        """设置页改动后立刻同步练习区的字体与光标（不重开本局）。"""
+        settings = self.app.settings
+        style = str(settings.get("caret_style", "bar"))
+        smooth = bool(settings.get("caret_smooth", True))
+        family = str(settings.get("practice_font") or "")
+        self.surface.apply_style(style, smooth, family)
+        self._set_cn_entry_font(family)
+        self.caret_cn.set_style(style)
+        self.caret_cn.set_smooth(smooth)
+        self._place_cn_caret(animate=False)
+
+    def _place_cn_caret(self, animate: bool = True) -> None:
+        """把中文输入框的自绘光标放到插入点。
+
+        tkinter 的 Entry.bbox() 在隐藏原生光标（insertwidth=0）后不可靠，
+        这里直接用字体度量计算插入点横坐标。
+        """
+        if self.mode != "cn":
+            self.caret_cn.hide()
+            return
+        try:
+            self.cn_entry.update_idletasks()
+            index = self.cn_entry.index("insert")
+            prefix = self.cn_entry.get()[:index]
+            face = tkfont.Font(font=self.cn_entry.cget("font"))
+            text_w = face.measure(prefix)
+            line_h = max(8, face.metrics("linespace"))
+        except (tk.TclError, ValueError):
+            self.caret_cn.hide()
+            return
+        pad = 3 + int(self.cn_entry.winfo_x() and 0)
+        x = self.cn_entry.winfo_x() + pad + text_w
+        y = self.cn_entry.winfo_y() + max(0, (self.cn_entry.winfo_height() - line_h) // 2)
+        self.caret_cn.set_style("bar")
+        self.caret_cn.place_box(x, y, 4, line_h, animate=animate)
+
     def _on_cn_change(self, *_args) -> None:
         if self._guard or self.mode != "cn" or not self.session or self._finished:
             return
         if self.paused:
             return
         text = self.cn_entry_var.get()
+        try:
+            self.cn_entry.icursor("end")
+        except tk.TclError:
+            pass
         session = self.session
         line = session.line_text
         res = session.update_input(text)
@@ -468,12 +567,14 @@ class PracticeScreen(BaseScreen):
                 return
             self._render_cn_line(session.line_index, 0, 0)
             self.surface.follow(self._line_starts[session.line_index])
+            self.after(16, self._place_cn_caret)
             self.keyboard.set_target_char(line[:1] if line else "")
         else:
             matched = session.matched
             typed = len(text)
             self._render_cn_line(session.line_index, matched, typed)
             self.surface.follow(self._line_starts[session.line_index])
+            self.after(16, self._place_cn_caret)
         self.keyboard.set_target_char(self._next_cn_char())
         if self.app.settings.get("sound_enabled", True) and res.line_completed:
             self.app.sounds.play("click")

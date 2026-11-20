@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import messagebox
 
 from .. import config as CFG
@@ -15,13 +16,20 @@ from .base import BaseScreen
 
 LENGTHS = [("short", "短"), ("medium", "中"), ("long", "长")]
 UI_SCALES = [("0.9", "紧凑"), ("1", "标准"), ("1.1", "大"), ("1.2", "超大")]
+CARET_STYLES = [("bar", "竖线"), ("block", "方框"), ("underline", "下划线")]
+FONT_CANDIDATES = [
+    "Cascadia Mono", "Cascadia Code", "Consolas", "Courier New", "Lucida Console",
+    "JetBrains Mono", "Fira Code", "Source Code Pro", "Segoe UI",
+    "Microsoft YaHei", "Microsoft YaHei UI", "DengXian", "SimHei",
+    "KaiTi", "FangSong", "SimSun", "Noto Sans Mono CJK SC", "Sarasa Mono SC",
+]
 SHORTCUTS = [
     ("Tab", "英文模式：重新开始本局"),
     ("F5", "中文模式：重新开始本局"),
     ("Esc", "退出练习，返回首页"),
     ("Backspace", "英文模式：退格重打"),
     ("空格", "英文模式：照常输入空格"),
-    ("Enter", "中文模式：整行上屏后自动换行"),
+    ("Enter", "代码练习：换行自动跳过，按 Enter 也可前进"),
 ]
 
 
@@ -109,6 +117,25 @@ class SettingsScreen(BaseScreen):
                                     value=f"{float(s.get('ui_scale', 1.0)):.2f}".rstrip("0").rstrip("."),
                                     command=self._set_ui_scale, bg=T.CARD, height=30),
             first=True)
+        families = set(tkfont.families(self))
+        font_options = [("", "默认（英文等宽 / 中文雅黑）")]
+        font_options += [(name, name) for name in FONT_CANDIDATES if name in families]
+        current_font = str(s.get("practice_font") or "")
+        if current_font and current_font not in families:
+            font_options.append((current_font, current_font))
+        self._row(
+            p, "练习字体", "只影响练习区的目标文字，下拉可选系统字体",
+            lambda row: W.Dropdown(row, font_options, value=current_font,
+                                   command=self._set_font_family, bg=T.CARD, width=200))
+        self._row(
+            p, "光标样式", "竖线更轻，方框更醒目，下划线更像纸面练习",
+            lambda row: W.Segmented(row, CARET_STYLES,
+                                    value=str(s.get("caret_style", "bar")),
+                                    command=self._set_caret_style, bg=T.CARD, height=30))
+        self._row(
+            p, "光标平滑移动", "光标跟随字符位置做短距离滑动，而不是瞬间跳转",
+            lambda row: W.Toggle(row, value=bool(s.get("caret_smooth", True)),
+                                 command=self._set_caret_smooth, bg=T.CARD))
         self._row(
             p, "严格模式", "打错字不前进，必须先退格改正（推荐新手开启）",
             lambda row: W.Toggle(row, value=bool(s.get("strict_mode", True)),
@@ -203,6 +230,29 @@ class SettingsScreen(BaseScreen):
     # ------------------------------------------------------------ 回调
     def _save(self) -> None:
         self.app.settings.save()
+
+    def _apply_practice_style(self) -> None:
+        practice = self.app.screens.get("practice")
+        if practice is not None and hasattr(practice, "apply_practice_style"):
+            try:
+                practice.apply_practice_style()
+            except Exception:
+                pass
+
+    def _set_font_family(self, value: str) -> None:
+        self.app.settings["practice_font"] = value
+        self.app.settings.save()
+        self._apply_practice_style()
+
+    def _set_caret_style(self, value: str) -> None:
+        self.app.settings["caret_style"] = value
+        self.app.settings.save()
+        self._apply_practice_style()
+
+    def _set_caret_smooth(self, value: bool) -> None:
+        self.app.settings["caret_smooth"] = bool(value)
+        self.app.settings.save()
+        self._apply_practice_style()
 
     def _set_strict(self, value: bool) -> None:
         self.app.settings["strict_mode"] = bool(value)

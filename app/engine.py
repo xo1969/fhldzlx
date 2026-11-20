@@ -142,14 +142,22 @@ class EnglishSession(StatsMixin):
         self.bad_index: int | None = None
         self.ok_count = 0
         self.bad_count = 0
+        self._newlines = text.count("\n")
         self._init_stats()
-        if not text:
+        self._advance_newlines()
+        if not text or self.pos >= len(text):
             self.finished = True
 
     # -- 属性 -------------------------------------------------------
     @property
     def total_chars(self) -> int:
-        return len(self.text)
+        return max(0, len(self.text) - self._newlines)
+
+    def _advance_newlines(self) -> None:
+        """跳过目标文本里的换行：代码练习等按行显示的文本不需要手动敲回车。"""
+        while self.pos < len(self.text) and self.text[self.pos] == "\n":
+            self.states[self.pos] = OK
+            self.pos += 1
 
     @property
     def done_chars(self) -> int:
@@ -180,16 +188,31 @@ class EnglishSession(StatsMixin):
             return KeyResult(index=self.pos, kind="none")
         self.start()
         self.resume()
+        self._advance_newlines()
         res = KeyResult(index=self.pos, kind="none")
+
+        if ch in ("\r", "\n"):
+            # 目标在换行处时，回车也可以主动跳过
+            if self.pos < len(self.text) and self.text[self.pos] == "\n":
+                self._advance_newlines()
+                res.kind = "ok"
+                res.index = self.pos
+                res.line_completed = True
+            return res
 
         if ch == "\b":
             if self.pos > 0:
-                self.pos -= 1
-                if self.states[self.pos] == OK:
-                    self.ok_count -= 1
-                elif self.states[self.pos] == BAD:
-                    self.bad_count -= 1
-                self.states[self.pos] = PENDING
+                # 先跨过自动跳过的换行，再撤销上一行最后一个字符
+                while self.pos > 0 and self.text[self.pos - 1] == "\n":
+                    self.pos -= 1
+                    self.states[self.pos] = PENDING
+                if self.pos > 0:
+                    self.pos -= 1
+                    if self.states[self.pos] == OK:
+                        self.ok_count -= 1
+                    elif self.states[self.pos] == BAD:
+                        self.bad_count -= 1
+                    self.states[self.pos] = PENDING
                 self.bad_index = None
                 res.kind = "back"
                 res.index = self.pos
@@ -207,22 +230,21 @@ class EnglishSession(StatsMixin):
             self.ok_count += 1
             self.correct_keystrokes += 1
             self.pos += 1
+            self._advance_newlines()
             self.bad_index = None
             res.kind = "ok"
-            res.index = self.pos - 1
         else:
             self.errors += 1
             if self.strict:
                 self.bad_index = self.pos
                 res.kind = "bad"
-                res.index = self.pos
             else:
                 self.states[self.pos] = BAD
                 self.bad_count += 1
                 self.pos += 1
+                self._advance_newlines()
                 self.bad_index = self.pos - 1
                 res.kind = "bad"
-                res.index = self.pos - 1
 
         if self.done:
             self.finished = True
@@ -233,11 +255,13 @@ class EnglishSession(StatsMixin):
 
     def skip_char(self) -> KeyResult:
         """跳过当前字符（输入法无法输入的字符等）。"""
+        self._advance_newlines()
         if self.pos >= len(self.text):
             return KeyResult(index=self.pos)
         self.states[self.pos] = OK
         self.ok_count += 1
         self.pos += 1
+        self._advance_newlines()
         if self.done:
             self.finished = True
         return KeyResult(index=self.pos, kind="ok", finished=self.finished)
