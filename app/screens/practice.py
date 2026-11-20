@@ -27,13 +27,22 @@ class TextSurface(tk.Frame):
         self._caret_style = caret_style
         self._font_family = font_family
         self._last_index = 0
+        self._cursor_job = None
+        self._settle_job = None
+        self._cursor_bad = False
+        self._cursor_animate = True
         self.text = tk.Text(self, bg=T.CARD, fg=T.TEXT, relief="flat", bd=0,
                             highlightthickness=0, wrap="word", padx=T.px(30),
                             pady=T.px(22), insertwidth=0, cursor="arrow",
                             selectbackground=T.mix(T.CARD, T.ORANGE, 0.3),
                             spacing1=T.px(2), spacing2=T.px(10))
         self.bar = ttk.Scrollbar(self, orient="vertical", command=self.text.yview)
-        self.text.configure(yscrollcommand=self.bar.set)
+        def _yscroll(first, last):
+            self.bar.set(first, last)
+            if getattr(self, "_last_index", None) is not None:
+                self._cursor_animate = False
+                self._schedule_cursor(False)
+        self.text.configure(yscrollcommand=_yscroll)
         # 滚动条先 pack，否则会被 Text 的请求宽度挤成 0 宽
         self.bar.pack(side="right", fill="y")
         self.text.pack(side="left", fill="both", expand=True)
@@ -107,8 +116,41 @@ class TextSurface(tk.Frame):
         self.text.tag_add("pend", self._idx(start), self._idx(end))
 
     def set_cursor(self, index: int, bad: bool = False, animate: bool = True) -> None:
-        """把自绘光标移到第 index 个字符；越界或结尾时贴到最后一个字符。"""
+        """把自绘光标移到第 index 个字符；越界或结尾时贴到最后一字符。
+
+        不能立刻用 bbox 定位：软换行/自动滚动后 Tk 的布局要到 idle 才更新，
+        立刻定位会比目标行高一行，下一次输入才「跳回来」。因此这里只记录目标，
+        等布局稳定后在 idle 里再真正摆放。
+        """
         self._last_index = max(0, int(index))
+        self._cursor_bad = bool(bad)
+        self._schedule_cursor(animate)
+
+    def _schedule_cursor(self, animate: bool) -> None:
+        if animate:
+            self._cursor_animate = True
+        if getattr(self, "_cursor_job", None):
+            try:
+                self.after_cancel(self._cursor_job)
+            except tk.TclError:
+                pass
+        self._cursor_job = self.after_idle(self._apply_cursor)
+        # Tk 在「新行首次成为当前行」时，bbox 可能还会晚一拍才稳定（差 4~6px），
+        # 再补一次无动画的校正，保证光标不会停在上一行的位置。
+        if getattr(self, "_settle_job", None):
+            try:
+                self.after_cancel(self._settle_job)
+            except tk.TclError:
+                pass
+        self._settle_job = self.after(60, self._settle_cursor)
+
+    def _settle_cursor(self) -> None:
+        self._settle_job = None
+        self._cursor_animate = False
+        self._apply_cursor()
+
+    def _apply_cursor(self) -> None:
+        self._cursor_job = None
         idx = self._idx(self._last_index)
         try:
             self.text.update_idletasks()
@@ -123,8 +165,11 @@ class TextSurface(tk.Frame):
         bx, by, bw, bh = info
         x = self.text.winfo_x() + bx - 1
         y = self.text.winfo_y() + by
-        self.caret.set_style(self._caret_style, color=T.RED if bad else T.ORANGE)
-        self.caret.place_box(x, y, max(bw, 4) + 2, max(bh - 2, 8), animate=animate)
+        color = T.RED if self._cursor_bad else T.ORANGE
+        self.caret.set_style(self._caret_style, color=color)
+        self.caret.place_box(x, y, max(bw, 4) + 2, max(bh - 2, 8),
+                             animate=self._cursor_animate)
+        self._cursor_animate = False
 
     def flash_bad(self, index: int, ms: int = 130) -> None:
         self.text.tag_add("bad", self._idx(index), self._idx(index + 1))

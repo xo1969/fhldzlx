@@ -9,7 +9,7 @@ from pathlib import Path
 APP_NAME = "风火轮打字"
 APP_EN = "Firewheel"
 DATA_DIR = "FirewheelTyping"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 TAGLINE = "风火轮转，键指生花"
 
 # ---------------------------------------------------------------- 路径
