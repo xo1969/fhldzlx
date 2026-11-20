@@ -4,14 +4,19 @@
 > 深空夜色 + 火焰橙主题，纯 tkinter 自绘界面，单文件 exe，打开即用。
 >
 > 仓库地址：<https://github.com/xo1969/fhldzlx>
+>
+> [![build](https://github.com/xo1969/fhldzlx/actions/workflows/build.yml/badge.svg)](https://github.com/xo1969/fhldzlx/actions/workflows/build.yml)
 
 ![首页](_shots/01_home.png)
 
+## 下载
+
+- [最新版本 Releases](https://github.com/xo1969/fhldzlx/releases/latest)：Windows 10/11 单文件 exe，双击即用，无需安装 Python。
+- 也可以拉源码自己打包：`packaging\build_exe.bat`；CI 在 Actions 里也会产出 exe 构建物。
+
 ## 三步开始
 
-1. 拿到 **`风火轮打字.exe`**（Windows 10/11，无需安装 Python），双击运行。
-   仓库不提交 22 MB 的二进制：可运行 `packaging\build_exe.bat` 自己打包，
-   或从 GitHub Actions 的 Artifacts 下载构建产物。
+1. 从 Releases 下载 **`风火轮打字.exe`**（Windows 10/11），双击运行。
 2. 首页点「立即练习」或挑一门课，直接敲键盘开始。
 3. 练完自动弹出结算：速度、正确率、评级、是否破纪录，并写入历史统计。
 
