@@ -1,0 +1,49 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pygame-ce pyinstaller pillow
+
+      - name: Syntax check
+        run: python -m compileall -q app tools tests
+
+      - name: Smoke tests
+        run: python tests/smoke_test.py
+
+      - name: Build single-file exe
+        run: >
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          --name "风火轮打字"
+          --icon assets/icon.ico
+          --version-file packaging/version_info.txt
+          --add-data "assets;assets"
+          run.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firewheel-typing-windows
+          path: dist/风火轮打字.exe
+          if-no-files-found: error

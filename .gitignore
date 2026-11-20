@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec
+
+# 打包 / 构建产物
+build/
+dist/
+_preview_data/
+userdata/
+
+# 开发临时目录
+_probe/
+_remote_preview/
+*.log
+.env
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

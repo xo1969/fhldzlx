@@ -1,0 +1,8 @@
+# 运行本程序只需要 Python 3.10+（tkinter 随 Python 自带）
+# 下面这个可选依赖用于播放 mp3/ogg/flac 背景音乐与按键音效；
+# 没装也能用：程序会自动退回 Windows 自带播放器接口（wav/mp3）或静默模式。
+pygame-ce>=2.4
+
+# 仅打包 exe / 生成图标时需要：
+# pyinstaller>=6.0
+# pillow>=10.0
